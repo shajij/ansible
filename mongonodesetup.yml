@@ -1,0 +1,74 @@
+---
+- hosts: mongo-nodes
+  tasks:
+   - name: create new primary partition at sbd
+     parted:
+       device: /dev/sdb
+       number: 1
+       state: present
+     become: yes
+
+   - name: Create volume group on top of /dev/sdb1 for docker
+     lvg:
+       vg: mongovg
+       pvs: /dev/sdb1
+     become: yes
+
+   - name: Create a logical volume the size of all remaining space in the volume group
+     lvol:
+       vg: mongovg
+       lv: var_mongo
+       size: 100%FREE
+     become: yes
+
+   - name: Create a xfs filesystem on the logical volume
+     filesystem:
+       fstype: xfs
+       dev: /dev/mongovg/var_mongo
+     become: yes
+
+   - name: create docker folder
+     file:
+       path: /var/mongo
+       state: directory
+     become: yes
+
+   - name: mount /var/lib/docker to new volume
+     mount:
+       path: /var/mongo
+       src: /dev/mongovg/var_mongo
+       fstype: xfs
+       state: mounted
+     become: yes
+
+   - name: disable firewall
+     service:
+       name: firewalld
+       state: stopped
+       enabled: no
+  
+   - selinux:
+      state: disabled
+
+   - name: copy the THP  file to destination
+     copy:
+       src: disable-transparent-hugepages
+       dest: /etc/init.d/disable-transparent-hugepages
+       mode: 0755
+
+   - name: enable for started up
+     service:
+       name: disable-transparent-hugepages
+       enabled: yes
+
+   - name: yum install saslauth requirements
+     yum:
+       name: "{{ item }}"
+       state: present
+     with_items:
+     - cyrus-sasl
+     - cyrus-sasl-plain
+     - cyrus-sasl-gssapi
+     - krb5-libs
+     - net-snmp
+     - openssl
